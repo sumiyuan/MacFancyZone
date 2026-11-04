@@ -24,17 +24,19 @@ struct AXWindow {
     /// Seconds an AX call may block on an unresponsive app before failing.
     private static let messagingTimeout: Float = 0.25
 
-    /// The window under `point` (top-left global), or nil if there isn't one or it belongs to this process.
-    static func under(_ point: CGPoint) -> AXWindow? {
+    /// The window under `point` (top-left global), or nil if there isn't one or it belongs
+    /// to this process, plus the result of the hit-test itself. `.apiDisabled` there means
+    /// the process can't use AX (e.g. a stale grant) even if `AXIsProcessTrusted()` is true.
+    static func under(_ point: CGPoint) -> (window: AXWindow?, error: AXError) {
         let systemWide = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(systemWide, messagingTimeout)
         var hit: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(systemWide, Float(point.x), Float(point.y), &hit) == .success,
-              let hit else { return nil }
+        let error = AXUIElementCopyElementAtPosition(systemWide, Float(point.x), Float(point.y), &hit)
+        guard error == .success, let hit else { return (nil, error) }
 
         var pid: pid_t = 0
         guard AXUIElementGetPid(hit, &pid) == .success,
-              pid != ProcessInfo.processInfo.processIdentifier else { return nil }
+              pid != ProcessInfo.processInfo.processIdentifier else { return (nil, error) }
 
         let window: AXUIElement
         if let role = copyAttribute(hit, kAXRoleAttribute) as? String, role == kAXWindowRole {
@@ -43,10 +45,10 @@ struct AXWindow {
                   CFGetTypeID(value) == AXUIElementGetTypeID() {
             window = value as! AXUIElement
         } else {
-            return nil
+            return (nil, error)
         }
         AXUIElementSetMessagingTimeout(window, messagingTimeout)
-        return AXWindow(element: window)
+        return (AXWindow(element: window), error)
     }
 
     /// `kAXPositionAttribute`: the window's top-left corner, top-left global.

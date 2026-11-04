@@ -12,7 +12,9 @@ OPENSSL=/usr/bin/openssl
 
 # Matches untrusted identities too; codesign signs fine with an untrusted
 # self-signed certificate, so no trust settings are required.
-if security find-identity -p codesigning | grep -q "\"$NAME\""; then
+# Captured first: `grep -q` exiting early could SIGPIPE `security` under pipefail.
+IDENTITIES="$(security find-identity -p codesigning)"
+if grep -qF "\"$NAME\"" <<<"$IDENTITIES"; then
     echo "Signing identity \"$NAME\" already exists."
     exit 0
 fi
@@ -47,4 +49,4 @@ security import "$TMP/identity.p12" -k "$KEYCHAIN" -P "$P12_PASS" -T /usr/bin/co
 # (`certificate leaf = H"..."`) pins the exact certificate without needing trust.
 
 echo "Created signing identity \"$NAME\":"
-security find-identity -p codesigning | grep "\"$NAME\""
+security find-identity -p codesigning | grep -F "\"$NAME\""

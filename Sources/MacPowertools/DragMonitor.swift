@@ -17,11 +17,17 @@ final class DragMonitor {
     private var initialSize: CGSize?
     /// When the tracker last read the window's origin via AX, for throttling.
     private var lastOriginRead: TimeInterval = 0
+    /// Bumped on every mouse-down, so a delayed re-apply of a snap is skipped
+    /// once a new drag has started.
+    private var dragGeneration = 0
 
     /// Minimum seconds between AX reads while waiting for the window to move.
     private static let originReadInterval: TimeInterval = 0.03
     /// A size change larger than this (points, either axis) marks the drag as a resize.
     private static let sizeTolerance: CGFloat = 1
+    /// Delay before re-applying a snapped frame, in case the app's own final move
+    /// after mouse-up lands on top of ours.
+    private static let reapplyDelay: TimeInterval = 0.05
 
     /// Zone geometry for the screen under the cursor, computed once per shown screen.
     private struct ScreenZones {
@@ -66,7 +72,13 @@ final class DragMonitor {
 
     private func mouseDown() {
         endOverlay()
-        window = cursorTopLeft().flatMap { AXWindow.under($0) }
+        dragGeneration += 1
+        window = nil
+        if let point = cursorTopLeft() {
+            let hit = AXWindow.under(point)
+            noteAXResult(hit.error)
+            window = hit.window
+        }
         var origin = window?.origin
         initialSize = origin == nil ? nil : window?.size
         if initialSize == nil {
@@ -109,10 +121,32 @@ final class DragMonitor {
         endOverlay()
 
         guard snap, let target, let index, let rects, rects.indices.contains(index) else { return }
-        if target.setFrame(rects[index]) == .apiDisabled {
-            controller?.noteAXWriteDisabled()
-        }
+        let rect = rects[index]
+        let result = target.setFrame(rect)
+        noteAXResult(result)
         // Other errors (fixed-size windows, etc.) are ignored.
+        guard result != .apiDisabled else { return }
+
+        // Some apps finish their own drag with a final move after mouse-up, which can
+        // undo the snap. Re-apply the frame once, shortly after.
+        let generation = dragGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.reapplyDelay) { [weak self] in
+            guard let self, self.dragGeneration == generation,
+                  target.size != nil else { return }  // window gone
+            if target.setFrame(rect) == .apiDisabled {
+                self.controller?.noteAXWriteDisabled()
+            }
+        }
+    }
+
+    /// Feeds an AX result to the controller's permission state: `.apiDisabled` marks AX
+    /// as unusable; `.success` clears that mark. Other errors say nothing about permission.
+    private func noteAXResult(_ error: AXError) {
+        switch error {
+        case .apiDisabled: controller?.noteAXWriteDisabled()
+        case .success: controller?.noteAXWorking()
+        default: break
+        }
     }
 
     private func updateOverlay() {

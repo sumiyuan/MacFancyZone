@@ -8,7 +8,10 @@ IDENTITY="MacPowertools Local Signing"
 BUNDLE_ID="com.sumiyuan.MacPowertools"
 APP="build/MacPowertools.app"
 
-if ! security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
+# Capture first: `grep -q` exiting early could SIGPIPE `security` and, under
+# pipefail, make a present identity look missing.
+IDENTITIES="$(security find-identity -p codesigning)"
+if ! grep -qF "\"$IDENTITY\"" <<<"$IDENTITIES"; then
     echo "error: signing identity \"$IDENTITY\" not found." >&2
     echo "Run scripts/create-signing-cert.sh once to create it." >&2
     exit 1

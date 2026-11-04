@@ -20,7 +20,10 @@ struct MenuBuilder {
         var monitors: [MonitorInfo]
         var zones: ZonesState
         var permissionNeeded: Bool
-        var launchAtLoginEnabled: Bool
+        /// `.on` enabled, `.off` disabled, `.mixed` registered but awaiting approval.
+        var launchAtLogin: NSControl.StateValue
+        /// The preset open in the editor (edit mode), whose Rename/Delete are disabled.
+        var editingPresetID: UUID?
     }
 
     let target: AppController
@@ -45,13 +48,15 @@ struct MenuBuilder {
             menu.addItem(.separator())
             let activeID = section.items.first(where: \.isActive)?.presetID
             let payload = MenuPayload(monitorID: section.monitorID, presetID: activeID)
+            let beingEdited = activeID != nil && activeID == state.editingPresetID
             for (title, action) in [("New Layout…", #selector(AppController.newLayout(_:))),
                                     ("Edit Current Layout…", #selector(AppController.editCurrentLayout(_:))),
                                     ("Rename…", #selector(AppController.renamePreset(_:))),
                                     ("Delete", #selector(AppController.deletePreset(_:)))] {
                 let it = item(title, action)
                 it.representedObject = payload
-                if title == "Delete" { it.isEnabled = state.zones.presets.count > 1 }
+                if title == "Delete" { it.isEnabled = state.zones.presets.count > 1 && !beingEdited }
+                if title == "Rename…" { it.isEnabled = !beingEdited }
                 menu.addItem(it)
             }
             menu.addItem(.separator())
@@ -65,7 +70,10 @@ struct MenuBuilder {
         }
 
         let launch = item("Launch at Login", #selector(AppController.toggleLaunchAtLogin))
-        launch.state = state.launchAtLoginEnabled ? .on : .off
+        launch.state = state.launchAtLogin
+        if state.launchAtLogin == .mixed {
+            launch.toolTip = "Waiting for approval in System Settings > General > Login Items. Click to turn off."
+        }
         menu.addItem(launch)
 
         menu.addItem(.separator())

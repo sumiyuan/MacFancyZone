@@ -21,7 +21,7 @@ final class EditorWindowController {
     private let draft: EditorDraft
     private let canvas: EditorCanvasView
     private let onSave: (Preset) -> Void
-    /// Called once when the editor closes (after save or cancel).
+    /// Called once, asynchronously, after the editor closes (after save or cancel).
     var onClose: (() -> Void)?
     private var closed = false
 
@@ -81,7 +81,8 @@ final class EditorWindowController {
         onSave(preset)
     }
 
-    private func cancel() {
+    /// Closes the editor and discards the draft.
+    func cancel() {
         close()
     }
 
@@ -90,6 +91,8 @@ final class EditorWindowController {
         closed = true
         window.orderOut(nil)
         window.close()
-        onClose?()
+        // Deferred: onClose may release the last strong reference to this controller,
+        // and AppKit can still be dispatching an event to its window right now.
+        DispatchQueue.main.async { self.onClose?() }
     }
 }
