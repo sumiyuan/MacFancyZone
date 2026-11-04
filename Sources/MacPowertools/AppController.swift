@@ -17,13 +17,17 @@ final class AppController: NSObject, NSMenuDelegate {
     private var axWriteDisabled = false
 
     /// True if the process isn't trusted for Accessibility, or an AX write
-    /// failed with `.apiDisabled`. Set it to `true` after such a failure;
-    /// setting it to `false` clears the write failure (it stays `true` while
-    /// the process is still untrusted).
+    /// failed with `.apiDisabled`.
     var permissionNeeded: Bool {
-        get { axWriteDisabled || !Accessibility.isTrusted() }
-        set { axWriteDisabled = newValue }
+        axWriteDisabled || !Accessibility.isTrusted()
     }
+
+    /// Call when an AX write returned `.apiDisabled`.
+    func noteAXWriteDisabled() {
+        axWriteDisabled = true
+    }
+
+    private var dragMonitor: DragMonitor?
 
     func start() {
         loadState()
@@ -37,6 +41,10 @@ final class AppController: NSObject, NSMenuDelegate {
         menu.delegate = self
         item.menu = menu
         statusItem = item
+
+        let monitor = DragMonitor(controller: self)
+        monitor.start()
+        dragMonitor = monitor
 
         if !Accessibility.isTrusted() {
             // Defer until the run loop is running so the alert can come forward.
