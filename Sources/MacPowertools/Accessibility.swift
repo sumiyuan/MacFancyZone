@@ -58,6 +58,15 @@ struct AXWindow {
         return point
     }
 
+    /// `kAXSizeAttribute`: the window's size.
+    var size: CGSize? {
+        guard let value = Self.copyAttribute(element, kAXSizeAttribute),
+              CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var size = CGSize.zero
+        guard AXValueGetValue(value as! AXValue, .cgSize, &size) else { return nil }
+        return size
+    }
+
     /// Sets position, then size, then position again (a size change can be clamped
     /// against the old position). Returns the first non-success error, or `.success`.
     func setFrame(_ rect: CGRect) -> AXError {

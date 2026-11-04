@@ -12,6 +12,16 @@ final class DragMonitor {
 
     /// The window under the cursor at mouse-down.
     private var window: AXWindow?
+    /// Its size at mouse-down. A drag that changes the size is a resize (e.g. from the
+    /// left or top edge, which also moves the origin), not a move, and must not snap.
+    private var initialSize: CGSize?
+    /// When the tracker last read the window's origin via AX, for throttling.
+    private var lastOriginRead: TimeInterval = 0
+
+    /// Minimum seconds between AX reads while waiting for the window to move.
+    private static let originReadInterval: TimeInterval = 0.03
+    /// A size change larger than this (points, either axis) marks the drag as a resize.
+    private static let sizeTolerance: CGFloat = 1
 
     /// Zone geometry for the screen under the cursor, computed once per shown screen.
     private struct ScreenZones {
@@ -57,19 +67,36 @@ final class DragMonitor {
     private func mouseDown() {
         endOverlay()
         window = cursorTopLeft().flatMap { AXWindow.under($0) }
-        let origin = window?.origin
-        if origin == nil { window = nil }
+        var origin = window?.origin
+        initialSize = origin == nil ? nil : window?.size
+        if initialSize == nil {
+            origin = nil
+            window = nil
+        }
+        lastOriginRead = 0
         tracker.mouseDown(windowOrigin: origin)
     }
 
     private func update(shiftHeld: Bool) {
-        let window = self.window
-        tracker.update(shiftHeld: shiftHeld) { window?.origin }
+        tracker.update(shiftHeld: shiftHeld) { currentOriginIfMoved() }
         guard tracker.overlayVisible else {
             endOverlay()
             return
         }
         updateOverlay()
+    }
+
+    /// For the tracker's lazy move check. Returns nil ("not moved yet") when throttled,
+    /// when the window can't be read, or when its size changed (a resize, not a move).
+    private func currentOriginIfMoved() -> CGPoint? {
+        guard let window, let initialSize else { return nil }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastOriginRead >= Self.originReadInterval else { return nil }
+        lastOriginRead = now
+        guard let size = window.size,
+              abs(size.width - initialSize.width) <= Self.sizeTolerance,
+              abs(size.height - initialSize.height) <= Self.sizeTolerance else { return nil }
+        return window.origin
     }
 
     private func mouseUp() {
@@ -78,6 +105,7 @@ final class DragMonitor {
         let index = highlighted
         let rects = zones?.gappedRects
         window = nil
+        initialSize = nil
         endOverlay()
 
         guard snap, let target, let index, let rects, rects.indices.contains(index) else { return }
