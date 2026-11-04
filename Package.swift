@@ -6,7 +6,9 @@ let package = Package(
     platforms: [.macOS(.v14)],
     targets: [
         .target(name: "ZonesCore"),
-        .executableTarget(name: "MacPowertools", dependencies: ["ZonesCore"]),
+        .target(name: "SwitcherCore"),
+        .executableTarget(name: "MacPowertools", dependencies: ["ZonesCore", "SwitcherCore"]),
         .testTarget(name: "ZonesCoreTests", dependencies: ["ZonesCore"]),
+        .testTarget(name: "SwitcherCoreTests", dependencies: ["SwitcherCore"]),
     ]
 )
