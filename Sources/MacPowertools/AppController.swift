@@ -120,9 +120,29 @@ final class AppController: NSObject, NSMenuDelegate {
 
     enum EditorMode { case new, editCurrent }
 
-    // Task 10: replace with the real editor window.
+    /// The open editor, if any. Only one at a time; released on save or cancel.
+    private var editor: EditorWindowController?
+
     func openEditor(for screen: NSScreen, mode: EditorMode) {
-        NSSound.beep()
+        if let editor {
+            editor.show()
+            return
+        }
+        let display = ScreenIdentity.uuid(for: screen)
+        let draft: Preset
+        switch mode {
+        case .new: draft = Preset(id: UUID(), name: state.nextLayoutName(), layout: .zone)
+        case .editCurrent: draft = activePreset(for: screen)
+        }
+        let controller = EditorWindowController(screen: screen, draft: draft) { [weak self] preset in
+            self?.mutate { state in
+                state.upsert(preset)
+                if mode == .new { state.setActive(preset.id, forDisplay: display) }
+            }
+        }
+        controller.onClose = { [weak self] in self?.editor = nil }
+        editor = controller
+        controller.show()
     }
 
     @objc func renamePreset(_ sender: NSMenuItem) {
