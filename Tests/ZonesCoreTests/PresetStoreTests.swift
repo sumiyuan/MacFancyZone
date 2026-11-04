@@ -92,4 +92,35 @@ import Foundation
             #expect(s.presets == StarterPresets.all)
         }
     }
+
+    @Test func moveFailureLeavesFileUntouchedAndReportsUnreadable() throws {
+        try withTempDir { dir in
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let file = dir.appendingPathComponent("zones.json")
+            let original = Data("{not json".utf8)
+            try original.write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path) }
+            guard case .unreadable(let state, _) = PresetStore(directory: dir).load() else {
+                Issue.record("expected unreadable"); return
+            }
+            #expect(state == .initial())
+            #expect(try Data(contentsOf: file) == original)
+        }
+    }
+
+    @Test func unreadableFileIsNotRenamed() throws {
+        try withTempDir { dir in
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let file = dir.appendingPathComponent("zones.json")
+            try Data("{}".utf8).write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
+            guard case .unreadable = PresetStore(directory: dir).load() else {
+                Issue.record("expected unreadable"); return
+            }
+            let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            #expect(names == ["zones.json"])
+        }
+    }
 }

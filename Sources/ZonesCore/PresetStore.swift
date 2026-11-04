@@ -4,10 +4,14 @@ public enum LoadResult: Equatable, Sendable {
     case loaded(ZonesState)
     case firstLaunch(ZonesState)
     case recoveredFromCorruptFile(ZonesState, movedTo: URL)
+    /// zones.json exists but could not be read, or could not be moved aside after failing to decode.
+    /// The file is left untouched. Callers must not call save() for the rest of the session,
+    /// or the user's data would be overwritten.
+    case unreadable(ZonesState, reason: String)
 
     public var state: ZonesState {
         switch self {
-        case .loaded(let s), .firstLaunch(let s), .recoveredFromCorruptFile(let s, _): return s
+        case .loaded(let s), .firstLaunch(let s), .recoveredFromCorruptFile(let s, _), .unreadable(let s, _): return s
         }
     }
 }
@@ -28,8 +32,13 @@ public struct PresetStore: Sendable {
     public func load() -> LoadResult {
         let fm = FileManager.default
         guard fm.fileExists(atPath: fileURL.path) else { return .firstLaunch(.initial()) }
+        let data: Data
         do {
-            let data = try Data(contentsOf: fileURL)
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            return .unreadable(.initial(), reason: "Could not read zones.json: \(error.localizedDescription)")
+        }
+        do {
             let state = try JSONDecoder().decode(ZonesState.self, from: data)
             return .loaded(state.sanitized())
         } catch {
@@ -46,7 +55,7 @@ public struct PresetStore: Sendable {
             do {
                 try fm.moveItem(at: fileURL, to: target)
             } catch {
-                // Could not move aside; still recover with defaults.
+                return .unreadable(.initial(), reason: "Could not move corrupt zones.json aside: \(error.localizedDescription)")
             }
             return .recoveredFromCorruptFile(.initial(), movedTo: target)
         }
