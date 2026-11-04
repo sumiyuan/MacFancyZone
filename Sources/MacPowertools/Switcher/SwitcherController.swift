@@ -126,7 +126,12 @@ final class SwitcherController {
         let target = selection?.index.flatMap { windows.indices.contains($0) ? windows[$0] : nil }
         close()
         // Nothing shown yet (deferred open pending, or no windows): nothing to switch to.
-        if let target { WindowActivator.activate(target) }
+        guard let target else { return }
+        // Runs from the tap callback: activation makes AX calls that can block on a busy
+        // app, which would stall all input, so do it on the next run-loop turn.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { _ = WindowActivator.activate(target) }
+        }
     }
 
     private func rowClicked(_ index: Int) {
