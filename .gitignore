@@ -2,3 +2,4 @@
 .build/
 *.app
 build/
+docs/superpowers/
