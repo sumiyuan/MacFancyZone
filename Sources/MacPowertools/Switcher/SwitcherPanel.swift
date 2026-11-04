@@ -24,6 +24,8 @@ final class SwitcherPanel {
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        // Always light text on the dark HUD, whatever the system appearance.
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
         panel.level = .popUpMenu

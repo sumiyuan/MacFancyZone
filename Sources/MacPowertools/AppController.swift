@@ -34,6 +34,11 @@ final class AppController: NSObject, NSMenuDelegate {
     }
 
     private var dragMonitor: DragMonitor?
+    private lazy var switcher: SwitcherController = {
+        let switcher = SwitcherController { [weak self] in self?.noteAXWriteDisabled() }
+        switcher.onPermissionRestored = { [weak self] in self?.noteAXWorking() }
+        return switcher
+    }()
 
     func start() {
         loadState()
@@ -52,6 +57,8 @@ final class AppController: NSObject, NSMenuDelegate {
         monitor.start()
         dragMonitor = monitor
 
+        switcher.start()
+
         NotificationCenter.default.addObserver(
             self, selector: #selector(screenParametersChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -67,11 +74,14 @@ final class AppController: NSObject, NSMenuDelegate {
     // MARK: NSMenuDelegate
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        // Retries the hotkey if it couldn't start earlier (e.g. permission granted since).
+        switcher.start()
         menuBuilder.populate(menu, state: .init(
             monitors: ScreenIdentity.monitors().map(\.info),
             zones: state,
             permissionNeeded: permissionNeeded,
             launchAtLogin: LaunchAtLogin.isEnabled ? .on : (LaunchAtLogin.needsApproval ? .mixed : .off),
+            windowSwitcherEnabled: switcher.isEnabled,
             editingPresetID: editor?.mode == .editCurrent ? editor?.presetID : nil
         ))
     }
@@ -283,6 +293,10 @@ final class AppController: NSObject, NSMenuDelegate {
         } catch {
             showError("Couldn't change Launch at Login", error)
         }
+    }
+
+    @objc func toggleWindowSwitcher() {
+        switcher.isEnabled.toggle()
     }
 
     @objc func quit() {

@@ -36,6 +36,12 @@ menu shows **Accessibility permission needed…**.
   divider between two plain (unsplit) zones to merge them. Set the name,
   spacing, and outer gap in the toolbar, then **Save**; **Esc** or **Cancel**
   discards the changes.
+- **Window switcher:** press **Option+Tab** to list your windows, most recent
+  first. Keep holding Option and tap **Tab** to move down (**Shift+Tab** to move
+  up), then release Option to switch to the highlighted window. **Esc**
+  cancels, and clicking a row switches to it. It lists the windows on the
+  current desktop, plus minimized windows and hidden apps' windows. Turn it
+  off or on with **Window Switcher** in the menu bar menu.
 
 ## Signing
 

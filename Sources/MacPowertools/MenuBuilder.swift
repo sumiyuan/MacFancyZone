@@ -22,6 +22,7 @@ struct MenuBuilder {
         var permissionNeeded: Bool
         /// `.on` enabled, `.off` disabled, `.mixed` registered but awaiting approval.
         var launchAtLogin: NSControl.StateValue
+        var windowSwitcherEnabled: Bool
         /// The preset open in the editor (edit mode), whose Rename/Delete are disabled.
         var editingPresetID: UUID?
     }
@@ -68,6 +69,10 @@ struct MenuBuilder {
             menu.addItem(item("Accessibility permission needed…", #selector(AppController.openAccessibilitySettings)))
             menu.addItem(.separator())
         }
+
+        let switcher = item("Window Switcher", #selector(AppController.toggleWindowSwitcher))
+        switcher.state = state.windowSwitcherEnabled ? .on : .off
+        menu.addItem(switcher)
 
         let launch = item("Launch at Login", #selector(AppController.toggleLaunchAtLogin))
         launch.state = state.launchAtLogin
