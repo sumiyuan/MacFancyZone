@@ -4,6 +4,9 @@ import AppKit
 @MainActor
 final class SwitcherPanel {
     var onRowClicked: ((Int) -> Void)?
+    /// The mouse moved onto a row. Not called for a cursor that was already resting
+    /// where the panel appeared, so opening the panel never moves the highlight.
+    var onRowHovered: ((Int) -> Void)?
 
     private static let width: CGFloat = 520
     private static let rowHeight: CGFloat = 34
@@ -30,6 +33,7 @@ final class SwitcherPanel {
         panel.hidesOnDeactivate = false
         panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        panel.acceptsMouseMovedEvents = true
 
         effectView.material = .hudWindow
         effectView.blendingMode = .behindWindow
@@ -47,6 +51,7 @@ final class SwitcherPanel {
         panel.contentView = effectView
 
         listView.onClick = { [weak self] index in self?.onRowClicked?(index) }
+        listView.onHover = { [weak self] index in self?.onRowHovered?(index) }
     }
 
     func show(_ windows: [SwitcherWindow], highlighted index: Int, on screen: NSScreen) {
@@ -67,6 +72,7 @@ final class SwitcherPanel {
         listView.frame = CGRect(x: 0, y: 0, width: Self.width, height: max(listHeight, height))
         listView.layoutRows()
         scrollToHighlighted()
+        listView.mouseLocationAtShow = NSEvent.mouseLocation
         panel.orderFrontRegardless()
     }
 
@@ -106,7 +112,12 @@ private final class SwitcherNSPanel: NSPanel {
 /// Flipped so row 0 is at the top; handles clicks for all rows.
 private final class SwitcherListView: NSView {
     var onClick: ((Int) -> Void)?
+    var onHover: ((Int) -> Void)?
+    /// Screen location of the cursor when the panel was shown. Hover is ignored until the
+    /// cursor moves away from it, so a resting cursor doesn't override the first Tab.
+    var mouseLocationAtShow: CGPoint?
     private var rows: [SwitcherRowView] = []
+    private var trackingArea: NSTrackingArea?
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -134,6 +145,27 @@ private final class SwitcherListView: NSView {
     func updateHighlight(from old: Int, to new: Int) {
         if rows.indices.contains(old) { rows[old].isHighlighted = false }
         if rows.indices.contains(new) { rows[new].isHighlighted = true }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        if let start = mouseLocationAtShow {
+            let now = NSEvent.mouseLocation
+            guard hypot(now.x - start.x, now.y - start.y) >= 1 else { return }
+            mouseLocationAtShow = nil
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        let index = SwitcherPanel.rowIndex(atY: point.y)
+        guard rows.indices.contains(index) else { return }
+        onHover?(index)
     }
 
     override func mouseDown(with event: NSEvent) {

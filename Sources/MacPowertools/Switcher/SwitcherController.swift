@@ -55,6 +55,7 @@ final class SwitcherController {
     init(onPermissionProblem: @escaping () -> Void) {
         self.onPermissionProblem = onPermissionProblem
         panel.onRowClicked = { [weak self] index in self?.rowClicked(index) }
+        panel.onRowHovered = { [weak self] index in self?.rowHovered(index) }
     }
 
     /// Starts focus tracking and, if enabled and not already running, the hotkey.
@@ -196,6 +197,14 @@ final class SwitcherController {
         DispatchQueue.main.async {
             MainActor.assumeIsolated { _ = WindowActivator.activate(target) }
         }
+    }
+
+    /// The hovered row becomes the selection, so releasing Option switches to it.
+    private func rowHovered(_ index: Int) {
+        guard var current = selection, windows.indices.contains(index) else { return }
+        current.select(index)
+        selection = current
+        panel.setHighlighted(index)
     }
 
     private func rowClicked(_ index: Int) {
