@@ -29,6 +29,7 @@ final class AllLayoutsWindowController {
     }
 
     func show() {
+        rename.renamingID = nil
         if window == nil {
             let w = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 420, height: 520),
@@ -74,6 +75,9 @@ private struct AllLayoutsView: View {
             .padding(12)
         }
         .frame(width: 420, height: 520)
+        .onChange(of: model.presets.map(\.id)) { _, ids in
+            if let id = rename.renamingID, !ids.contains(id) { rename.renamingID = nil }
+        }
     }
 }
 
@@ -100,6 +104,13 @@ private struct AllLayoutsRow: View {
                     .focused($fieldFocused)
                     .onSubmit(commitRename)
                     .onExitCommand { rename.renamingID = nil }
+                    .onAppear { fieldFocused = true }
+                    .onChange(of: fieldFocused) { _, focused in
+                        if !focused && isRenaming { rename.renamingID = nil }
+                    }
+                    .onChange(of: isLocked) { _, locked in
+                        if locked { rename.renamingID = nil }
+                    }
             } else {
                 Text(preset.name)
                     .lineLimit(1)
@@ -119,7 +130,6 @@ private struct AllLayoutsRow: View {
             Button {
                 rename.draft = preset.name
                 rename.renamingID = preset.id
-                fieldFocused = true
             } label: {
                 Image(systemName: "pencil")
             }
@@ -140,9 +150,10 @@ private struct AllLayoutsRow: View {
     }
 
     private func commitRename() {
+        let wasLocked = isLocked
         let trimmed = rename.draft.trimmingCharacters(in: .whitespacesAndNewlines)
         rename.renamingID = nil
-        guard !trimmed.isEmpty, trimmed != preset.name else { return }
+        guard !wasLocked, !trimmed.isEmpty, trimmed != preset.name else { return }
         model.onRename(preset.id, trimmed)
     }
 }
