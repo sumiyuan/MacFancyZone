@@ -6,7 +6,9 @@ import SwitcherCore
 /// list windows in recency order.
 @MainActor
 final class FocusTracker {
-    private(set) var windowRecency = RecencyList<WindowKey>()
+    /// Most recent 200 windows. Not pruned to the catalog: windows on other Spaces or of
+    /// an app that timed out keep their history.
+    private(set) var windowRecency = RecencyList<WindowKey>(capacity: FocusTracker.windowCapacity)
     private(set) var appRecency = RecencyList<Int32>()
 
     /// One observer per running regular app, keyed by pid.
@@ -18,13 +20,13 @@ final class FocusTracker {
         kAXMainWindowChangedNotification,
     ]
 
-    init() {}
+    private static let windowCapacity = 200
+    /// Most tracked-but-absent windows checked for destruction per `ordered` call.
+    private static let staleChecksPerOrdering = 8
 
-    isolated deinit {
-        let center = NSWorkspace.shared.notificationCenter
-        workspaceTokens.forEach(center.removeObserver)
-        for pid in Array(observers.keys) { removeObserver(for: pid) }
-    }
+    /// Lives for the app's lifetime (owned by `SwitcherController`), so it never
+    /// removes its observers.
+    init() {}
 
     /// Observes workspace app changes and AX focus changes, and seeds the trackers
     /// with the frontmost app and its focused window.
@@ -54,15 +56,15 @@ final class FocusTracker {
             addObserver(for: app.processIdentifier)
         }
         if let front = NSWorkspace.shared.frontmostApplication {
-            appActivated(front.processIdentifier)
+            appActivated(front.processIdentifier, isRegular: front.activationPolicy == .regular)
         }
     }
 
-    /// `windows` in recency order. Prunes both recency lists to the windows in `windows`
-    /// and the apps still running before ordering.
+    /// `windows` in recency order. Recency isn't pruned to `windows` (which may miss other
+    /// Spaces' windows); instead a few tracked windows absent from `windows` are checked
+    /// and dropped if they no longer exist.
     func ordered(_ windows: [SwitcherWindow]) -> [SwitcherWindow] {
-        windowRecency.prune(keeping: Set(windows.map(\.key)))
-        appRecency.prune(keeping: Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier)))
+        dropDestroyedWindows(absentFrom: Set(windows.map(\.key)))
 
         let candidates = windows.map { WindowCandidate(key: $0.key, appPID: $0.pid) }
         let byKey = Dictionary(windows.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
@@ -77,7 +79,7 @@ final class FocusTracker {
         case NSWorkspace.didActivateApplicationNotification:
             // Retry here too: right after launch an app may not accept AX observers yet.
             if isRegular { addObserver(for: pid) }
-            appActivated(pid)
+            appActivated(pid, isRegular: isRegular)
         case NSWorkspace.didLaunchApplicationNotification:
             if isRegular { addObserver(for: pid) }
         case NSWorkspace.didTerminateApplicationNotification:
@@ -87,8 +89,10 @@ final class FocusTracker {
         }
     }
 
-    private func appActivated(_ pid: pid_t) {
+    private func appActivated(_ pid: pid_t, isRegular: Bool) {
+        guard isRegular else { return }
         appRecency.touch(pid)
+        guard pid != ProcessInfo.processInfo.processIdentifier else { return }
         let appElement = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(appElement, WindowCatalog.perAppTimeout)
         if let window = SwitcherAX.element(appElement, kAXFocusedWindowAttribute) {
@@ -98,14 +102,32 @@ final class FocusTracker {
 
     private func appTerminated(_ pid: pid_t) {
         removeObserver(for: pid)
-        appRecency.prune(keeping: Set(appRecency.items.filter { $0 != pid }))
+        appRecency.remove(pid)
         windowRecency.prune(keeping: Set(windowRecency.items.filter { key in
             var owner: pid_t = 0
             return AXUIElementGetPid(key.element, &owner) == .success && owner != pid
         }))
     }
 
+    /// Checks up to `staleChecksPerOrdering` tracked windows not in `present`, most
+    /// recent first, and drops those whose element is gone.
+    private func dropDestroyedWindows(absentFrom present: Set<WindowKey>) {
+        let absent = windowRecency.items.lazy.filter { !present.contains($0) }
+            .prefix(Self.staleChecksPerOrdering)
+        for key in Array(absent) {
+            AXUIElementSetMessagingTimeout(key.element, WindowCatalog.perAppTimeout)
+            if SwitcherAX.copy(key.element, kAXRoleAttribute).error == .invalidUIElement {
+                windowRecency.remove(key)
+            }
+        }
+    }
+
+    /// From the AX callback: only the frontmost app's focus changes count, so a
+    /// background app changing its own focused window doesn't jump the list.
     fileprivate func windowFocused(_ window: WindowKey) {
+        var owner: pid_t = 0
+        guard AXUIElementGetPid(window.element, &owner) == .success,
+              owner == NSWorkspace.shared.frontmostApplication?.processIdentifier else { return }
         windowRecency.touch(window)
     }
 
@@ -129,7 +151,7 @@ final class FocusTracker {
             }
         }
         guard registered else { return }
-        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
         observers[pid] = observer
     }
 
@@ -139,12 +161,12 @@ final class FocusTracker {
         for name in Self.windowNotifications {
             AXObserverRemoveNotification(observer, appElement, name as CFString)
         }
-        CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
     }
 }
 
 /// AX observer callback. Sources are on the main run loop, so this runs on the main thread.
-/// `refcon` is an unretained `FocusTracker`; the tracker removes its observers in deinit.
+/// `refcon` is an unretained `FocusTracker`, which lives for the app's lifetime.
 private func focusTrackerCallback(_ observer: AXObserver,
                                   _ element: AXUIElement,
                                   _ notification: CFString,

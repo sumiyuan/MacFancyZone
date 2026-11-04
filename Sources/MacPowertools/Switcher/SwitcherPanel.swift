@@ -200,7 +200,7 @@ private final class SwitcherRowView: NSView {
 
     private func applyHighlight() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = isHighlighted ? NSColor.controlAccentColor.cgColor : nil
+            layer?.backgroundColor = isHighlighted ? NSColor.systemBlue.cgColor : nil
         }
         titleField.textColor = isHighlighted ? .white : .labelColor
         appField.textColor = isHighlighted ? .white.withAlphaComponent(0.8) : .secondaryLabelColor

@@ -12,12 +12,10 @@ final class SwitcherHotkey {
 
     var isRunning: Bool { tap != nil }
 
+    /// Lives for the app's lifetime (owned by `SwitcherController`); call `stop()` to
+    /// remove the tap.
     init(handler: @escaping (KeyInput, Modifiers) -> KeyAction) {
         self.handler = handler
-    }
-
-    isolated deinit {
-        stop()
     }
 
     /// Installs the tap. Returns false if it couldn't be created (no permission).
@@ -98,8 +96,8 @@ final class SwitcherHotkey {
 }
 
 /// Event tap callback. The tap's run-loop source is on the main run loop, so this runs
-/// on the main thread. `userInfo` is an unretained `SwitcherHotkey`, which removes the
-/// tap before it goes away.
+/// on the main thread. `userInfo` is an unretained `SwitcherHotkey`, which lives for the
+/// app's lifetime.
 private func switcherTapCallback(_ proxy: CGEventTapProxy,
                                  _ type: CGEventType,
                                  _ event: CGEvent,
