@@ -3,12 +3,21 @@ import Foundation
 public struct RecencyList<Key: Hashable & Sendable>: Sendable {
     /// Most recent first, no duplicates.
     public private(set) var items: [Key] = []
+    /// Maximum number of items kept; touching beyond it drops the oldest. Nil is unbounded.
+    public let capacity: Int?
 
-    public init() {}
+    public init(capacity: Int? = nil) {
+        self.capacity = capacity.map { max($0, 1) }
+    }
 
     public mutating func touch(_ key: Key) {
         if let i = items.firstIndex(of: key) { items.remove(at: i) }
         items.insert(key, at: 0)
+        if let capacity, items.count > capacity { items.removeLast(items.count - capacity) }
+    }
+
+    public mutating func remove(_ key: Key) {
+        items.removeAll { $0 == key }
     }
 
     public mutating func prune(keeping alive: Set<Key>) {

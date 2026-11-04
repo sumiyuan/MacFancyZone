@@ -21,6 +21,21 @@ import Testing
         #expect(l.items == ["a", "c"])
     }
 
+    @Test func capacityDropsOldest() {
+        var l = RecencyList<String>(capacity: 3)
+        l.touch("a"); l.touch("b"); l.touch("c"); l.touch("d")
+        #expect(l.items == ["d", "c", "b"])
+        l.touch("b")
+        #expect(l.items == ["b", "d", "c"])
+    }
+
+    @Test func removeDropsOneKey() {
+        var l = RecencyList<String>()
+        l.touch("a"); l.touch("b"); l.touch("c")
+        l.remove("b")
+        #expect(l.items == ["c", "a"])
+    }
+
     @Test func trackedWindowsComeFirstByRecency() {
         var w = RecencyList<String>()
         w.touch("w3"); w.touch("w2")

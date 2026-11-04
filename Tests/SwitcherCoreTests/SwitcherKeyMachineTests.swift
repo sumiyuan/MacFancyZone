@@ -81,3 +81,19 @@ private func openMachine() -> SwitcherKeyMachine {
     m.reset()
     #expect(!m.isOpen)
 }
+@Test func tabWithoutOptionWhileOpenCommits() {
+    // A missed Option release must not trap Tab or the arrows in the switcher.
+    for input in [KeyInput.tab(shift: false), .tab(shift: true), .arrowDown, .arrowUp] {
+        var m = openMachine()
+        #expect(m.handle(input, modifiers: Modifiers()) == .commit(passEvent: true))
+        #expect(!m.isOpen)
+    }
+    var m = openMachine()
+    #expect(m.handle(.tab(shift: true), modifiers: Modifiers(shift: true)) == .commit(passEvent: true))
+    #expect(!m.isOpen)
+}
+@Test func escapeWithoutOptionWhileOpenCancels() {
+    var m = openMachine()
+    #expect(m.handle(.escape, modifiers: Modifiers()) == .cancel)
+    #expect(!m.isOpen)
+}

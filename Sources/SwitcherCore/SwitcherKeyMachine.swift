@@ -39,23 +39,28 @@ public struct SwitcherKeyMachine: Sendable {
             }
             return .passThrough
         }
-        switch input {
-        case .escape:
+        if input == .escape {
             isOpen = false
             return .cancel
+        }
+        // Option no longer held (its release was missed or arrived late): any event
+        // commits and reaches its target, per the spec.
+        if !modifiers.option {
+            isOpen = false
+            return .commit(passEvent: true)
+        }
+        switch input {
         case .tab(let shift):
             return shift ? .movePrevious : .moveNext
         case .arrowDown:
             return .moveNext
         case .arrowUp:
             return .movePrevious
-        case .modifiersChanged, .otherKey, .mouseDown:
-            if !modifiers.option {
-                isOpen = false
-                return .commit(passEvent: true)
-            }
-            // Option still held: clicks reach the panel's rows; everything else is swallowed.
-            return input == .mouseDown ? .passThrough : .swallow
+        case .mouseDown:
+            // Option still held: clicks reach the panel's rows.
+            return .passThrough
+        case .escape, .modifiersChanged, .otherKey:
+            return .swallow
         }
     }
 
