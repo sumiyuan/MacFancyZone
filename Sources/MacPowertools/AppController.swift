@@ -1,16 +1,32 @@
 import AppKit
 import ServiceManagement
+import SwiftUI
 import ZonesCore
 
-/// Owns the status item and its menu, and drives the permission flow.
+/// Owns the status item and its panel, and drives the permission flow.
 @MainActor
-final class AppController: NSObject, NSMenuDelegate {
+final class AppController: NSObject, NSPopoverDelegate {
     private var statusItem: NSStatusItem?
     private let store = PresetStore(directory: PresetStore.defaultDirectory())
     private(set) var state = ZonesState.initial()
     /// False after an `.unreadable` load: changes stay in memory, the user's file is never overwritten.
     private var canSave = true
-    private lazy var menuBuilder = MenuBuilder(target: self)
+
+    private let panel = PanelModel()
+    private let popover = NSPopover()
+    /// Watches for Esc while the popover is shown; removed when it closes.
+    private var escMonitor: Any?
+    /// Set by New / Edit / All layouts before closing the popover, so the app stays active
+    /// for the window they open.
+    private var keepActiveOnClose = false
+    /// When a click on the status button closed the popover. The transient popover closes on
+    /// mouse-down, before the button's action runs on mouse-up; this stops that click reopening it.
+    private var closedByButtonClick: Date?
+    /// The popover closed because one of our own windows (e.g. All Layouts) was clicked.
+    private var closedIntoOwnWindow = false
+
+    private let allLayoutsModel = AllLayoutsModel()
+    private lazy var allLayouts = AllLayoutsWindowController(model: allLayoutsModel)
 
     /// Set when an AX call returned `.apiDisabled` even though
     /// `AXIsProcessTrusted()` may report true (e.g. a stale grant).
@@ -47,11 +63,12 @@ final class AppController: NSObject, NSMenuDelegate {
             let image = NSImage(systemSymbolName: "rectangle.split.3x1", accessibilityDescription: "MacPowertools")
             image?.isTemplate = true
             button.image = image
+            button.target = self
+            button.action = #selector(togglePanel(_:))
         }
-        let menu = NSMenu()
-        menu.delegate = self
-        item.menu = menu
         statusItem = item
+        setUpPanel()
+        setUpAllLayouts()
 
         let monitor = DragMonitor(controller: self)
         monitor.start()
@@ -71,19 +88,170 @@ final class AppController: NSObject, NSMenuDelegate {
         }
     }
 
-    // MARK: NSMenuDelegate
+    // MARK: Panel
 
-    func menuNeedsUpdate(_ menu: NSMenu) {
+    private func setUpPanel() {
+        popover.behavior = .transient
+        popover.appearance = NSAppearance(named: .darkAqua)
+        popover.contentViewController = NSHostingController(rootView: MenuPanelView(model: panel))
+        popover.delegate = self
+
+        panel.onSelectMonitor = { [weak self] id in
+            self?.panel.selectedMonitorID = id
+            self?.refreshPanel()
+        }
+        panel.onApplyTile = { [weak self] id in
+            guard let self, let display = self.selectedDisplay() else { return }
+            self.mutate { $0.apply(id, forDisplay: display) }
+        }
+        panel.onNewLayout = { [weak self] in self?.openEditorFromPanel(mode: .new) }
+        panel.onEditCurrent = { [weak self] in self?.openEditorFromPanel(mode: .editCurrent) }
+        panel.onAllLayouts = { [weak self] in
+            guard let self else { return }
+            self.closePanelKeepingActive()
+            self.refreshAllLayouts()
+            self.allLayouts.show()
+        }
+        panel.onToggleSwitcher = { [weak self] in
+            self?.toggleWindowSwitcher()
+            self?.refreshPanel()
+        }
+        panel.onToggleLaunch = { [weak self] in
+            self?.toggleLaunchAtLogin()
+            self?.refreshPanel()
+        }
+        panel.onOpenPermissionSettings = { Accessibility.openSettingsPane() }
+        panel.onQuit = { NSApp.terminate(nil) }
+    }
+
+    @objc private func togglePanel(_ sender: Any?) {
+        if popover.isShown {
+            popover.performClose(sender)
+            return
+        }
+        if let closed = closedByButtonClick {
+            closedByButtonClick = nil
+            if Date().timeIntervalSince(closed) < 1 { return }
+        }
+        guard let button = statusItem?.button else { return }
         // Retries the hotkey if it couldn't start earlier (e.g. permission granted since).
         switcher.start()
-        menuBuilder.populate(menu, state: .init(
-            monitors: ScreenIdentity.monitors().map(\.info),
-            zones: state,
-            permissionNeeded: permissionNeeded,
-            launchAtLogin: LaunchAtLogin.isEnabled ? .on : (LaunchAtLogin.needsApproval ? .mixed : .off),
-            windowSwitcherEnabled: switcher.isEnabled,
-            editingPresetID: editor?.mode == .editCurrent ? editor?.presetID : nil
-        ))
+        panel.selectedMonitorID = pointerMonitorID()
+        refreshPanel()
+        NSApp.activate()
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.keyCode == 53, self.popover.isShown,
+                  event.window === self.popover.contentViewController?.view.window else { return event }
+            self.popover.performClose(nil)
+            return nil
+        }
+    }
+
+    func popoverWillClose(_ notification: Notification) {
+        // Runs while the closing event is current: note what was clicked, if anything.
+        closedByButtonClick = nil
+        closedIntoOwnWindow = false
+        guard let event = NSApp.currentEvent,
+              [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type),
+              let window = event.window,
+              window !== popover.contentViewController?.view.window else { return }
+        if window === statusItem?.button?.window {
+            closedByButtonClick = Date()
+        } else {
+            closedIntoOwnWindow = true
+        }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        if let escMonitor { NSEvent.removeMonitor(escMonitor) }
+        escMonitor = nil
+        // Hand focus back to the previous app, unless the user went to one of our windows.
+        if !keepActiveOnClose && !closedIntoOwnWindow { NSApp.deactivate() }
+        keepActiveOnClose = false
+        closedIntoOwnWindow = false
+    }
+
+    private func closePanelKeepingActive() {
+        guard popover.isShown else { return }
+        keepActiveOnClose = true
+        popover.performClose(nil)
+    }
+
+    private func openEditorFromPanel(mode: EditorMode) {
+        closePanelKeepingActive()
+        guard let id = selectedDisplay(), let screen = screen(for: id) else { return }
+        openEditor(for: screen, mode: mode)
+    }
+
+    /// The monitor under the pointer, else the first.
+    private func pointerMonitorID() -> String? {
+        let monitors = ScreenIdentity.monitors()
+        let point = NSEvent.mouseLocation
+        return (monitors.first { NSMouseInRect(point, $0.screen.frame, false) } ?? monitors.first)?.info.id
+    }
+
+    /// The panel's selected monitor, if it still exists.
+    private func selectedDisplay() -> String? {
+        guard let id = panel.selectedMonitorID,
+              ScreenIdentity.monitors().contains(where: { $0.info.id == id }) else { return nil }
+        return id
+    }
+
+    /// Refills the panel from `state`. Falls back to the pointer's monitor if the selected one is gone.
+    private func refreshPanel() {
+        let monitors = ScreenIdentity.monitors().map(\.info)
+        panel.monitors = monitors
+        if !monitors.contains(where: { $0.id == panel.selectedMonitorID }) {
+            panel.selectedMonitorID = pointerMonitorID()
+        }
+        if let display = panel.selectedMonitorID {
+            panel.tiles = state.panelTiles(forDisplay: display)
+            panel.activePresetID = state.activePreset(forDisplay: display).id
+        } else {
+            panel.tiles = []
+            panel.activePresetID = nil
+        }
+        panel.permissionNeeded = permissionNeeded
+        panel.switcherOn = switcher.isEnabled
+        panel.launch = LaunchAtLogin.isEnabled ? .on : (LaunchAtLogin.needsApproval ? .needsApproval : .off)
+    }
+
+    // MARK: All Layouts
+
+    private func setUpAllLayouts() {
+        allLayoutsModel.onToggleFavourite = { [weak self] id in
+            self?.mutate { $0.setFavourite(id, !$0.isFavourite(id)) }
+        }
+        allLayoutsModel.onRename = { [weak self] id, name in
+            guard let self, !self.isBeingEdited(id) else { return }
+            self.mutate { $0.rename(id, to: name) }
+        }
+        allLayoutsModel.onDelete = { [weak self] id in self?.deletePreset(id) }
+        allLayoutsModel.onRestoreStarters = { [weak self] in
+            self?.mutate { $0.restoreStarters() }
+        }
+        refreshAllLayouts()
+    }
+
+    private func refreshAllLayouts() {
+        allLayoutsModel.presets = state.presets
+        allLayoutsModel.favourites = state.favourites
+        allLayoutsModel.lockedPresetID = editor?.mode == .editCurrent ? editor?.presetID : nil
+    }
+
+    private func deletePreset(_ id: UUID) {
+        guard state.presets.count > 1, !isBeingEdited(id),
+              let preset = state.presets.first(where: { $0.id == id }),
+              let fallback = state.presets.first(where: { $0.id != id }) else { return }
+        let alert = NSAlert()
+        alert.messageText = "Delete “\(preset.name)”?"
+        alert.informativeText = "Monitors using it switch to “\(fallback.name)”."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        mutate { $0.delete(id) }
     }
 
     // MARK: State
@@ -127,6 +295,8 @@ final class AppController: NSObject, NSMenuDelegate {
 
     func mutate(_ change: (inout ZonesState) -> Void) {
         change(&state)
+        refreshPanel()
+        refreshAllLayouts()
         guard canSave else { return }
         do { try store.save(state) } catch { showError("Couldn't save presets", error) }
     }
@@ -139,22 +309,7 @@ final class AppController: NSObject, NSMenuDelegate {
         ScreenIdentity.monitors().first { $0.info.id == monitorID }?.screen
     }
 
-    // MARK: Preset actions
-
-    @objc func selectPreset(_ sender: NSMenuItem) {
-        guard let p = sender.representedObject as? MenuPayload, let preset = p.presetID else { return }
-        mutate { $0.setActive(preset, forDisplay: p.monitorID) }
-    }
-
-    @objc func newLayout(_ sender: NSMenuItem) {
-        guard let p = sender.representedObject as? MenuPayload, let screen = screen(for: p.monitorID) else { return }
-        openEditor(for: screen, mode: .new)
-    }
-
-    @objc func editCurrentLayout(_ sender: NSMenuItem) {
-        guard let p = sender.representedObject as? MenuPayload, let screen = screen(for: p.monitorID) else { return }
-        openEditor(for: screen, mode: .editCurrent)
-    }
+    // MARK: Editor
 
     enum EditorMode { case new, editCurrent }
 
@@ -168,7 +323,9 @@ final class AppController: NSObject, NSMenuDelegate {
     }
 
     /// The open editor, if any. Only one at a time; released on save or cancel.
-    private var editor: EditorSession?
+    private var editor: EditorSession? {
+        didSet { refreshAllLayouts() }
+    }
 
     func openEditor(for screen: NSScreen, mode: EditorMode) {
         let display = ScreenIdentity.uuid(for: screen)
@@ -203,7 +360,7 @@ final class AppController: NSObject, NSMenuDelegate {
         var preset = edited
         var activate = mode == .new
         if mode == .editCurrent, !state.presets.contains(where: { $0.id == preset.id }) {
-            // Deleted from the menu while being edited: don't silently bring it back.
+            // Deleted from All Layouts while being edited: don't silently bring it back.
             let alert = NSAlert()
             alert.messageText = "This layout was deleted while you were editing it. Save it as a new layout?"
             alert.addButton(withTitle: "Save as New")
@@ -216,6 +373,7 @@ final class AppController: NSObject, NSMenuDelegate {
         mutate { state in
             state.upsert(preset)
             if activate { state.setActive(preset.id, forDisplay: display) }
+            state.touchRecent(preset.id, forDisplay: display)
         }
     }
 
@@ -224,8 +382,9 @@ final class AppController: NSObject, NSMenuDelegate {
         editor?.mode == .editCurrent && editor?.presetID == id
     }
 
-    /// Cancels the editor if its screen went away or changed geometry.
+    /// Refreshes the panel, and cancels the editor if its screen went away or changed geometry.
     @objc private func screenParametersChanged() {
+        refreshPanel()
         guard let editor else { return }
         let screen = NSScreen.screens.first { ScreenIdentity.uuid(for: $0) == editor.display }
         if screen?.frame != editor.screenFrame {
@@ -234,50 +393,9 @@ final class AppController: NSObject, NSMenuDelegate {
         }
     }
 
-    @objc func renamePreset(_ sender: NSMenuItem) {
-        guard let p = sender.representedObject as? MenuPayload, let id = p.presetID,
-              !isBeingEdited(id),
-              let preset = state.presets.first(where: { $0.id == id }) else { return }
-        let alert = NSAlert()
-        alert.messageText = "Rename Layout"
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.stringValue = preset.name
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        NSApp.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let name = field.stringValue
-        mutate { $0.rename(id, to: name) }
-    }
-
-    @objc func deletePreset(_ sender: NSMenuItem) {
-        guard let p = sender.representedObject as? MenuPayload, let id = p.presetID,
-              state.presets.count > 1, !isBeingEdited(id),
-              let preset = state.presets.first(where: { $0.id == id }),
-              let fallback = state.presets.first(where: { $0.id != id }) else { return }
-        let alert = NSAlert()
-        alert.messageText = "Delete “\(preset.name)”?"
-        alert.informativeText = "Monitors using it switch to “\(fallback.name)”."
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        mutate { $0.delete(id) }
-    }
-
-    @objc func restoreStarterPresets() {
-        mutate { $0.restoreStarters() }
-    }
-
     // MARK: Actions
 
-    @objc func openAccessibilitySettings() {
-        Accessibility.openSettingsPane()
-    }
-
-    @objc func toggleLaunchAtLogin() {
+    private func toggleLaunchAtLogin() {
         do {
             if LaunchAtLogin.needsApproval {
                 // Registered but not yet approved: clicking turns it off rather than
@@ -295,12 +413,8 @@ final class AppController: NSObject, NSMenuDelegate {
         }
     }
 
-    @objc func toggleWindowSwitcher() {
+    private func toggleWindowSwitcher() {
         switcher.isEnabled.toggle()
-    }
-
-    @objc func quit() {
-        NSApp.terminate(nil)
     }
 
     // MARK: Alerts

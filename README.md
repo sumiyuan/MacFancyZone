@@ -20,17 +20,28 @@ open build/MacPowertools.app
 On first launch the app asks for the Accessibility permission, which it needs
 to move and resize other apps' windows. Choose **Open System Settings** and turn
 on MacPowertools under **Privacy & Security > Accessibility**. Until then, the
-menu shows **Accessibility permission needed…**.
+panel shows an orange **Accessibility permission needed** banner with an
+**Open Settings** button.
 
 ## Using it
 
 - **Snap a window:** hold **Shift** while dragging a window by its title bar.
   The zones of the monitor under the cursor appear; drop the window on one to
   snap it there. Release Shift before dropping to move it normally.
-- **Menu bar menu:** for each monitor, pick the active preset, or use
-  **New Layout…**, **Edit Current Layout…**, **Rename…**, and **Delete**.
-  **Restore Starter Presets** brings back any deleted starter presets, and
-  **Launch at Login** starts the app when you log in.
+- **Menu bar panel:** click the menu bar icon to open the panel (click away
+  or press **Esc** to close it). It shows six layout tiles for the monitor
+  under the pointer; with more than one monitor, a picker switches monitors.
+  Click a tile to make it that monitor's layout (the active one is outlined in
+  blue). Tiles show your favourites first, then the layouts you used most
+  recently on that monitor. **＋ New layout** and **Edit current…** open the
+  layout editor, and the **Window Switcher** and **Launch at Login** switches
+  turn those features on or off.
+- **All Layouts window:** **All layouts…** in the panel lists every layout.
+  Click the star to make a layout a favourite (up to six), which pins it to
+  the front of the panel. Use the pencil to rename a layout and the trash to
+  delete it (after confirming). **Restore Starter Presets** brings back any
+  deleted starter presets. The layout open in the editor can't be renamed or
+  deleted until the editor closes.
 - **Layout editor:** click a zone to split it side by side; Shift-click to
   stack it top and bottom. Drag a divider handle to resize. Right-click a
   divider between two plain (unsplit) zones to merge them. Set the name,
@@ -41,7 +52,7 @@ menu shows **Accessibility permission needed…**.
   up), then release Option to switch to the highlighted window. **Esc**
   cancels, and clicking a row switches to it. It lists the windows on the
   current desktop, plus minimized windows and hidden apps' windows. Turn it
-  off or on with **Window Switcher** in the menu bar menu.
+  off or on with **Window Switcher** in the menu bar panel.
 
 ## Signing
 
@@ -73,7 +84,7 @@ script is safe to run again; it does nothing if the identity already exists.
 
 ## Troubleshooting
 
-- **The permission item stays in the menu after granting access**, or snapping
+- **The permission banner stays in the panel after granting access**, or snapping
   does nothing: the grant may belong to an older signature (for example, if
   you recreated the certificate). Reset it, relaunch, and grant it again:
 
