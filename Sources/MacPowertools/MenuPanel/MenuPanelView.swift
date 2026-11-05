@@ -75,6 +75,7 @@ struct MenuPanelView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityAddTraits(preset.id == model.activePresetID ? .isSelected : [])
                 }
             }
             HStack {
@@ -136,6 +137,7 @@ struct MenuPanelView: View {
                 Text("Quit MacPowertools").font(.system(size: 12)).foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .keyboardShortcut("q")
         }
         .padding(.horizontal, 4)
     }

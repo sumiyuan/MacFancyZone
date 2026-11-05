@@ -55,6 +55,18 @@ final class AllLayoutsWindowController {
 private final class RenameState {
     var renamingID: UUID?
     var draft = ""
+
+    /// Ends the rename in progress, saving the draft (Finder-style). Reverts instead if the
+    /// draft is blank or unchanged, or the layout is locked by the editor.
+    func commit(in model: AllLayoutsModel) {
+        guard let id = renamingID else { return }
+        renamingID = nil
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard model.lockedPresetID != id, !trimmed.isEmpty,
+              let preset = model.presets.first(where: { $0.id == id }),
+              trimmed != preset.name else { return }
+        model.onRename(id, trimmed)
+    }
 }
 
 private struct AllLayoutsView: View {
@@ -71,6 +83,11 @@ private struct AllLayoutsView: View {
             HStack {
                 Button("Restore Starter Presets") { model.onRestoreStarters() }
                 Spacer()
+                if model.favourites.count >= ZonesState.maxFavourites {
+                    Text("Up to \(ZonesState.maxFavourites) favourites")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(12)
         }
@@ -102,11 +119,12 @@ private struct AllLayoutsRow: View {
                 TextField("Name", text: $rename.draft)
                     .textFieldStyle(.roundedBorder)
                     .focused($fieldFocused)
-                    .onSubmit(commitRename)
-                    .onExitCommand { rename.renamingID = nil }
+                    .onSubmit { rename.commit(in: model) }
+                    .onExitCommand { rename.renamingID = nil }   // Esc cancels
                     .onAppear { fieldFocused = true }
                     .onChange(of: fieldFocused) { _, focused in
-                        if !focused && isRenaming { rename.renamingID = nil }
+                        // Losing focus saves the draft, like Finder.
+                        if !focused && isRenaming { rename.commit(in: model) }
                     }
                     .onChange(of: isLocked) { _, locked in
                         if locked { rename.renamingID = nil }
@@ -128,6 +146,7 @@ private struct AllLayoutsRow: View {
             .help(starDisabled ? "Up to \(ZonesState.maxFavourites) favourites" : (isFavourite ? "Remove from favourites" : "Add to favourites"))
 
             Button {
+                rename.commit(in: model)   // finish any other row's rename first
                 rename.draft = preset.name
                 rename.renamingID = preset.id
             } label: {
@@ -147,13 +166,5 @@ private struct AllLayoutsRow: View {
             .help("Delete")
         }
         .padding(.vertical, 4)
-    }
-
-    private func commitRename() {
-        let wasLocked = isLocked
-        let trimmed = rename.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        rename.renamingID = nil
-        guard !wasLocked, !trimmed.isEmpty, trimmed != preset.name else { return }
-        model.onRename(preset.id, trimmed)
     }
 }

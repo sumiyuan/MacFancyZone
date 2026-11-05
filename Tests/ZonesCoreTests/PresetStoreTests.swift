@@ -123,4 +123,80 @@ import Foundation
             #expect(names == ["zones.json"])
         }
     }
+
+    private func writeStateJSON(_ dir: URL, favourites: Any?, recents: Any?) throws -> ZonesState {
+        var state = ZonesState.initial()
+        let custom = Preset(id: UUID(), name: "Mine", layout: .zone, spacing: 8, outerGap: true)
+        state.upsert(custom)
+        state.setActive(custom.id, forDisplay: "A")
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as! [String: Any]
+        json["favourites"] = favourites
+        json["recents"] = recents
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: json).write(to: dir.appendingPathComponent("zones.json"))
+        return state
+    }
+
+    @Test func malformedFavouritesStillLoadsPresets() throws {
+        try withTempDir { dir in
+            let valid = StarterPresets.all[1].id
+            let expected = try writeStateJSON(dir, favourites: ["not-a-uuid", valid.uuidString, 42], recents: nil)
+            guard case let .loaded(state) = PresetStore(directory: dir).load() else {
+                Issue.record("expected loaded"); return
+            }
+            #expect(state.presets == expected.presets)
+            #expect(state.assignments == expected.assignments)
+            #expect(state.favourites == [valid])
+        }
+    }
+
+    @Test func wronglyTypedFavouritesStillLoadsPresets() throws {
+        try withTempDir { dir in
+            let expected = try writeStateJSON(dir, favourites: "oops", recents: nil)
+            guard case let .loaded(state) = PresetStore(directory: dir).load() else {
+                Issue.record("expected loaded"); return
+            }
+            #expect(state.presets == expected.presets)
+            #expect(state.favourites.isEmpty)
+        }
+    }
+
+    @Test func malformedRecentsStillLoadsPresets() throws {
+        try withTempDir { dir in
+            let valid = StarterPresets.all[2].id
+            let expected = try writeStateJSON(dir, favourites: nil,
+                                              recents: ["A": ["bad", valid.uuidString], "B": 7])
+            guard case let .loaded(state) = PresetStore(directory: dir).load() else {
+                Issue.record("expected loaded"); return
+            }
+            #expect(state.presets == expected.presets)
+            #expect(state.recents["A"] == [valid])
+            #expect((state.recents["B"] ?? []).isEmpty)
+        }
+    }
+
+    @Test func wronglyTypedRecentsStillLoadsPresets() throws {
+        try withTempDir { dir in
+            let expected = try writeStateJSON(dir, favourites: nil, recents: [1, 2])
+            guard case let .loaded(state) = PresetStore(directory: dir).load() else {
+                Issue.record("expected loaded"); return
+            }
+            #expect(state.presets == expected.presets)
+            #expect(state.recents.isEmpty)
+        }
+    }
+
+    @Test func favouritesAndRecentsRoundTrip() throws {
+        try withTempDir { dir in
+            let store = PresetStore(directory: dir)
+            var state = ZonesState.initial()
+            state.setFavourite(state.presets[2].id, true)
+            state.setFavourite(state.presets[0].id, true)
+            state.apply(state.presets[1].id, forDisplay: "A")
+            state.apply(state.presets[2].id, forDisplay: "A")
+            state.apply(state.presets[0].id, forDisplay: "B")
+            try store.save(state)
+            #expect(store.load() == .loaded(state))
+        }
+    }
 }

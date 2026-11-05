@@ -32,8 +32,11 @@ public struct ZonesState: Codable, Equatable, Sendable {
             version: try c.decodeIfPresent(Int.self, forKey: .version) ?? 1,
             presets: presets,
             assignments: try c.decodeIfPresent([String: UUID].self, forKey: .assignments) ?? [:],
-            favourites: try c.decodeIfPresent([UUID].self, forKey: .favourites) ?? [],
-            recents: try c.decodeIfPresent([String: [UUID]].self, forKey: .recents) ?? [:]
+            // Favourites and recents are non-essential: a malformed value must never make the
+            // whole file (and every layout in it) count as corrupt, so decode them leniently.
+            favourites: (try? c.decodeIfPresent(LenientUUIDList.self, forKey: .favourites))?.ids ?? [],
+            recents: (try? c.decodeIfPresent([String: LenientUUIDList].self, forKey: .recents))?
+                .mapValues(\.ids) ?? [:]
         )
     }
 
@@ -148,5 +151,22 @@ public struct ZonesState: Codable, Equatable, Sendable {
         s.favourites = Array(favourites.filter { known.contains($0) && seenFav.insert($0).inserted }.prefix(Self.maxFavourites))
         s.recents = recents.mapValues { $0.filter { known.contains($0) } }
         return s
+    }
+}
+
+/// Decodes a JSON array keeping only the elements that are valid UUIDs; anything else
+/// (wrong element types, or a non-array value) yields an empty list instead of throwing.
+private struct LenientUUIDList: Decodable {
+    let ids: [UUID]
+
+    private struct Element: Decodable {
+        let id: UUID?
+        init(from decoder: Decoder) throws {
+            id = try? decoder.singleValueContainer().decode(UUID.self)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        ids = ((try? [Element](from: decoder)) ?? []).compactMap(\.id)
     }
 }

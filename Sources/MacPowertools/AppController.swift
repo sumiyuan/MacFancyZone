@@ -24,6 +24,9 @@ final class AppController: NSObject, NSPopoverDelegate {
     private var closedByButtonClick: Date?
     /// The popover closed because one of our own windows (e.g. All Layouts) was clicked.
     private var closedIntoOwnWindow = false
+    /// Whether MacPowertools was already active when the panel opened (e.g. All Layouts or the
+    /// editor was key). If so, closing the panel must not deactivate the app.
+    private var wasActiveBeforePanel = false
 
     private let allLayoutsModel = AllLayoutsModel()
     private lazy var allLayouts = AllLayoutsWindowController(model: allLayoutsModel)
@@ -93,7 +96,10 @@ final class AppController: NSObject, NSPopoverDelegate {
     private func setUpPanel() {
         popover.behavior = .transient
         popover.appearance = NSAppearance(named: .darkAqua)
-        popover.contentViewController = NSHostingController(rootView: MenuPanelView(model: panel))
+        let hosting = NSHostingController(rootView: MenuPanelView(model: panel))
+        // Resize the popover when the content's height changes while open (e.g. the monitor picker appears).
+        hosting.sizingOptions = .preferredContentSize
+        popover.contentViewController = hosting
         popover.delegate = self
 
         panel.onSelectMonitor = { [weak self] id in
@@ -138,8 +144,10 @@ final class AppController: NSObject, NSPopoverDelegate {
         switcher.start()
         panel.selectedMonitorID = pointerMonitorID()
         refreshPanel()
+        wasActiveBeforePanel = NSApp.isActive
         NSApp.activate()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        if let escMonitor { NSEvent.removeMonitor(escMonitor) }
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.keyCode == 53, self.popover.isShown,
                   event.window === self.popover.contentViewController?.view.window else { return event }
@@ -157,17 +165,22 @@ final class AppController: NSObject, NSPopoverDelegate {
               let window = event.window,
               window !== popover.contentViewController?.view.window else { return }
         if window === statusItem?.button?.window {
-            closedByButtonClick = Date()
+            // Only a left click reaches the button's action, so only it should be swallowed.
+            if event.type == .leftMouseDown { closedByButtonClick = Date() }
         } else {
             closedIntoOwnWindow = true
         }
     }
 
     func popoverDidClose(_ notification: Notification) {
+        // A late close callback after a quick reopen must not tear down the new session.
+        guard !popover.isShown else { return }
         if let escMonitor { NSEvent.removeMonitor(escMonitor) }
         escMonitor = nil
-        // Hand focus back to the previous app, unless the user went to one of our windows.
-        if !keepActiveOnClose && !closedIntoOwnWindow { NSApp.deactivate() }
+        // Hand focus back to the previous app, unless the user went to one of our windows
+        // or the app was already active when the panel opened.
+        if !keepActiveOnClose && !closedIntoOwnWindow && !wasActiveBeforePanel { NSApp.deactivate() }
+        wasActiveBeforePanel = false
         keepActiveOnClose = false
         closedIntoOwnWindow = false
     }
@@ -179,8 +192,8 @@ final class AppController: NSObject, NSPopoverDelegate {
     }
 
     private func openEditorFromPanel(mode: EditorMode) {
-        closePanelKeepingActive()
         guard let id = selectedDisplay(), let screen = screen(for: id) else { return }
+        closePanelKeepingActive()
         openEditor(for: screen, mode: mode)
     }
 
