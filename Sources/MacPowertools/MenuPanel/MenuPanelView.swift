@@ -14,7 +14,8 @@ struct MenuPanelView: View {
             if model.permissionNeeded { permissionBanner }
             layoutsCard
             toggleRow
-            // Future cards (e.g. the volume mixer) go here: just add another view to this stack.
+            if let mixer = model.mixer { MixerCard(model: mixer) }
+            // Future cards go here: just add another view to this stack.
             footer
         }
         .padding(10)

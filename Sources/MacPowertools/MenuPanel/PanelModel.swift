@@ -14,6 +14,8 @@ final class PanelModel {
     var activePresetID: UUID?
     var switcherOn = true
     var launch: LaunchState = .off
+    /// The Volume Mixer card's model; nil (card hidden) before macOS 14.2.
+    var mixer: MixerModel?
 
     var onSelectMonitor: (String) -> Void = { _ in }
     var onApplyTile: (UUID) -> Void = { _ in }

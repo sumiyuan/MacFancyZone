@@ -55,6 +55,15 @@ panel shows an orange **Accessibility permission needed** banner with an
   cancels, and clicking a row switches to it. It lists the windows on the
   current desktop, plus minimized windows and hidden apps' windows. Turn it
   off or on with **Window Switcher** in the menu bar panel.
+- **Volume mixer** (macOS 14.2 or later): the panel's **Volume Mixer** card
+  lists the apps playing sound. Drag an app's slider from 0% to 150% (there's
+  a notch at 100%), or click its speaker to mute it. Each app's setting is
+  remembered, including after a restart. The first time you turn an app
+  down, macOS may ask for **System Audio Recording** permission: the mixer
+  works by capturing that app's sound and replaying it at your level. An app
+  at 100% is left alone, and quitting MacPowertools gives every app its normal
+  sound back. Safari and system sounds aren't listed, because macOS doesn't
+  say which app they come from.
 
 ## Signing
 

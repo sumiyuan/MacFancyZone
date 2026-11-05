@@ -1,4 +1,5 @@
 import AppKit
+import MixerCore
 import ServiceManagement
 import SwiftUI
 import ZonesCore
@@ -56,6 +57,8 @@ final class AppController: NSObject, NSPopoverDelegate {
     }
 
     private var dragMonitor: DragMonitor?
+    /// The `MixerController` on macOS 14.2+, else nil. Typed loosely to avoid availability on the property.
+    private var mixerController: AnyObject?
     private lazy var switcher: SwitcherController = {
         let switcher = SwitcherController { [weak self] in self?.noteAXWriteDisabled() }
         switcher.onPermissionRestored = { [weak self] in self?.noteAXWorking() }
@@ -82,6 +85,17 @@ final class AppController: NSObject, NSPopoverDelegate {
 
         switcher.start()
 
+        if #available(macOS 14.2, *) {
+            let model = MixerModel()
+            let mixer = MixerController(model: model, store: MixerStore(directory: PresetStore.defaultDirectory()))
+            panel.mixer = model
+            mixer.start()
+            mixerController = mixer
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(applicationWillTerminate),
+                name: NSApplication.willTerminateNotification, object: nil)
+        }
+
         NotificationCenter.default.addObserver(
             self, selector: #selector(screenParametersChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -92,6 +106,11 @@ final class AppController: NSObject, NSPopoverDelegate {
                 self?.showPermissionAlert()
             }
         }
+    }
+
+    /// Hands every app's sound back before quitting.
+    @objc private func applicationWillTerminate() {
+        if #available(macOS 14.2, *) { (mixerController as? MixerController)?.stopAll() }
     }
 
     // MARK: Panel
@@ -149,6 +168,7 @@ final class AppController: NSObject, NSPopoverDelegate {
         refreshPanel()
         wasActiveBeforePanel = NSApp.isActive
         NSApp.activate()
+        if #available(macOS 14.2, *) { (mixerController as? MixerController)?.panelOpened() }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         if let escMonitor { NSEvent.removeMonitor(escMonitor) }
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
