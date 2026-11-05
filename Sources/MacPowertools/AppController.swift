@@ -16,6 +16,9 @@ final class AppController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     /// Watches for Esc while the popover is shown; removed when it closes.
     private var escMonitor: Any?
+    /// Watches for clicks in other apps while the popover is shown. `.transient` alone misses
+    /// them when macOS declines to activate the app, so this closes the panel explicitly.
+    private var outsideClickMonitor: Any?
     /// Set by New / Edit / All layouts before closing the popover, so the app stays active
     /// for the window they open.
     private var keepActiveOnClose = false
@@ -154,6 +157,13 @@ final class AppController: NSObject, NSPopoverDelegate {
             self.popover.performClose(nil)
             return nil
         }
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            guard let self, self.popover.isShown else { return }
+            self.popover.performClose(nil)
+        }
     }
 
     func popoverWillClose(_ notification: Notification) {
@@ -177,6 +187,8 @@ final class AppController: NSObject, NSPopoverDelegate {
         guard !popover.isShown else { return }
         if let escMonitor { NSEvent.removeMonitor(escMonitor) }
         escMonitor = nil
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        outsideClickMonitor = nil
         // Hand focus back to the previous app, unless the user went to one of our windows
         // or the app was already active when the panel opened.
         if !keepActiveOnClose && !closedIntoOwnWindow && !wasActiveBeforePanel { NSApp.deactivate() }
