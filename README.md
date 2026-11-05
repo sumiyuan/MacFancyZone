@@ -32,14 +32,16 @@ panel shows an orange **Accessibility permission needed** banner with an
   or press **Esc** to close it). It shows six layout tiles for the monitor
   under the pointer; with more than one monitor, a picker switches monitors.
   Click a tile to make it that monitor's layout (the active one is outlined in
-  blue). Tiles show your favourites first, then the layouts you used most
-  recently on that monitor. **＋ New layout** and **Edit current…** open the
+  blue); the tiles stay where they are when you pick one. Tiles show your
+  favourites first, then the layouts you saved or picked most recently on that
+  monitor. **＋ New layout** and **Edit current…** open the
   layout editor, and the **Window Switcher** and **Launch at Login** switches
   turn those features on or off.
 - **All Layouts window:** **All layouts…** in the panel lists every layout.
   Click the star to make a layout a favourite (up to six), which pins it to
   the front of the panel. Use the pencil to rename a layout and the trash to
-  delete it (after confirming). **Restore Starter Presets** brings back any
+  delete it (after confirming). **＋ New Layout** opens the editor on the
+  monitor the window is on. **Restore Starter Presets** brings back any
   deleted starter presets. The layout open in the editor can't be renamed or
   deleted until the editor closes.
 - **Layout editor:** click a zone to split it side by side; Shift-click to

@@ -16,6 +16,7 @@ final class AllLayoutsModel {
     var onRename: (UUID, String) -> Void = { _, _ in }
     var onDelete: (UUID) -> Void = { _ in }
     var onRestoreStarters: () -> Void = {}
+    var onNewLayout: () -> Void = {}
 }
 
 @MainActor
@@ -27,6 +28,9 @@ final class AllLayoutsWindowController {
     init(model: AllLayoutsModel) {
         self.model = model
     }
+
+    /// The screen the window is on, if it has been shown.
+    var screen: NSScreen? { window?.screen }
 
     func show() {
         rename.renamingID = nil
@@ -81,6 +85,7 @@ private struct AllLayoutsView: View {
             .listStyle(.inset)
             Divider()
             HStack {
+                Button("＋ New Layout") { model.onNewLayout() }
                 Button("Restore Starter Presets") { model.onRestoreStarters() }
                 Spacer()
                 if model.favourites.count >= ZonesState.maxFavourites {

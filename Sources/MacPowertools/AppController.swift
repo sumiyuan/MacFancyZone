@@ -244,6 +244,14 @@ final class AppController: NSObject, NSPopoverDelegate {
         allLayoutsModel.onRestoreStarters = { [weak self] in
             self?.mutate { $0.restoreStarters() }
         }
+        allLayoutsModel.onNewLayout = { [weak self] in
+            // Edit on the monitor the All Layouts window is on; saving makes it that monitor's layout.
+            guard let self else { return }
+            let screen = self.allLayouts.screen
+                ?? self.pointerMonitorID().flatMap { self.screen(for: $0) }
+                ?? NSScreen.main
+            if let screen { self.openEditor(for: screen, mode: .new) }
+        }
         refreshAllLayouts()
     }
 
