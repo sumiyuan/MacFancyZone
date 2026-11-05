@@ -7,8 +7,10 @@ let package = Package(
     targets: [
         .target(name: "ZonesCore"),
         .target(name: "SwitcherCore"),
-        .executableTarget(name: "MacPowertools", dependencies: ["ZonesCore", "SwitcherCore"]),
+        .target(name: "MixerCore"),
+        .executableTarget(name: "MacPowertools", dependencies: ["ZonesCore", "SwitcherCore", "MixerCore"]),
         .testTarget(name: "ZonesCoreTests", dependencies: ["ZonesCore"]),
         .testTarget(name: "SwitcherCoreTests", dependencies: ["SwitcherCore"]),
+        .testTarget(name: "MixerCoreTests", dependencies: ["MixerCore"]),
     ]
 )
