@@ -1,6 +1,7 @@
 import AudioToolbox
 import CoreAudio
 import Foundation
+import MixerCore
 
 /// Raw cells shared with the audio thread. The IO block touches only these pointers: no
 /// allocation, locks or Swift concurrency on the real-time thread.
@@ -114,11 +115,11 @@ final class AppAudioCapture {
         let outs = UnsafeMutableAudioBufferListPointer(output)
         let gain = cells.gain.pointee
 
-        var src: UnsafeMutablePointer<Float>?
+        var src: UnsafePointer<Float>?
         var inChannels = 0
         var inFrames = 0
         if let tap = ins.last, let data = tap.mData, tap.mNumberChannels > 0 {
-            src = data.assumingMemoryBound(to: Float.self)
+            src = UnsafePointer(data.assumingMemoryBound(to: Float.self))
             inChannels = Int(tap.mNumberChannels)
             inFrames = Int(tap.mDataByteSize) / 4 / inChannels
             var heard = false
@@ -126,23 +127,6 @@ final class AppAudioCapture {
             if heard { cells.heard.pointee = 1 }
         }
 
-        let interleaved = outs.count == 1
-        for (bufferIndex, buffer) in outs.enumerated() {
-            guard let data = buffer.mData else { continue }
-            let dst = data.assumingMemoryBound(to: Float.self)
-            let outChannels = max(1, Int(buffer.mNumberChannels))
-            let outFrames = Int(buffer.mDataByteSize) / 4 / outChannels
-            for frame in 0..<outFrames {
-                for c in 0..<outChannels {
-                    // Interleaved: channel c; non-interleaved: buffer i carries channel i.
-                    let channel = interleaved ? c : bufferIndex
-                    var sample: Float = 0
-                    if let src, frame < inFrames, channel < inChannels {
-                        sample = max(-1, min(1, src[frame * inChannels + channel] * gain))
-                    }
-                    dst[frame * outChannels + c] = sample
-                }
-            }
-        }
+        mixTap(source: src, channels: inChannels, frames: inFrames, into: outs, gain: gain)
     }
 }

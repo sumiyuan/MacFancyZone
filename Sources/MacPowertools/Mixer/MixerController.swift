@@ -19,8 +19,8 @@ final class MixerController {
     private var settings = MixerSettings()
     private var sources = SoundSources()
     private var captures: [String: Active] = [:]
-    /// Apps whose capture failed or stayed silent; not retried until the panel next opens.
-    private var unavailable: Set<String> = []
+    /// When to capture, setup retries, and what silence means.
+    private var policy = MixerPolicy()
     /// Owner lookups by pid (nil = untraceable). Pruned to the pids Core Audio still lists.
     private var owners: [Int32: OwningApp?] = [:]
     private var timer: Timer?
@@ -55,7 +55,7 @@ final class MixerController {
 
     /// Gives apps that failed one more try.
     func panelOpened() {
-        unavailable.removeAll()
+        policy.resetFailures()
         tick()
     }
 
@@ -124,25 +124,20 @@ final class MixerController {
 
         for id in visible where wanted(id, visible: visible) {
             let objects = Set(sources.processObjects(for: id))
-            let gain = settings.setting(for: id).gain
-            if let active = captures[id] {
-                guard objects != active.objects || currentDevice(for: objects) != active.capture.outputDeviceID else {
-                    continue
-                }
-                // Start the replacement before stopping the old one, so the app never
-                // briefly plays at full volume between the two.
-                if let fresh = AppAudioCapture(processObjects: Array(objects), gain: gain) {
-                    active.capture.stop()
-                    captures[id] = Active(capture: fresh, objects: objects, probe: active.probe)
-                } else {
-                    active.capture.stop()
-                    captures[id] = nil
-                    unavailable.insert(id)
-                }
-            } else if let capture = AppAudioCapture(processObjects: Array(objects), gain: gain) {
-                captures[id] = Active(capture: capture, objects: objects, probe: SilenceProbe(startedAt: now))
+            if let active = captures[id],
+               objects == active.objects, currentDevice(for: objects) == active.capture.outputDeviceID {
+                continue
+            }
+            // Start the replacement before stopping any old capture, so the app never
+            // briefly plays at full volume between the two. Each capture gets a fresh probe.
+            let fresh = AppAudioCapture(processObjects: Array(objects), gain: settings.setting(for: id).gain)
+            captures[id]?.capture.stop()
+            if let fresh {
+                policy.setupSucceeded(id)
+                captures[id] = Active(capture: fresh, objects: objects, probe: SilenceProbe(startedAt: now))
             } else {
-                unavailable.insert(id)
+                policy.setupFailed(id)
+                captures[id] = nil
             }
         }
 
@@ -151,23 +146,18 @@ final class MixerController {
             let verdict = active.probe.observe(heardSound: active.capture.heardSound,
                                                sourcePlaying: sources.isPlaying(id), now: now)
             captures[id] = active
-            switch verdict {
-            case .silent:
+            if policy.respond(to: verdict, for: id) == .giveUp {
                 active.capture.stop()
                 captures[id] = nil
-                unavailable.insert(id)
-                model.permissionNeeded = true
-            case .healthy:
-                model.permissionNeeded = false
-            case .pending:
-                break
             }
         }
+        model.permissionNeeded = policy.showPermissionBanner
         publish()
     }
 
     private func wanted(_ id: String, visible: Set<String>) -> Bool {
-        visible.contains(id) && settings.setting(for: id).needsCapture && !unavailable.contains(id)
+        visible.contains(id) && policy.shouldCapture(id, setting: settings.setting(for: id),
+                                                     processCount: sources.processObjects(for: id).count)
     }
 
     /// The device the app's processes are playing to now, as `AppAudioCapture` would pick it.
@@ -185,7 +175,7 @@ final class MixerController {
             return MixerRow(id: app.bundleID, name: app.name,
                             icon: NSRunningApplication(processIdentifier: app.pid)?.icon,
                             volume: s.volume, muted: s.muted,
-                            unavailable: unavailable.contains(app.bundleID))
+                            unavailable: policy.gaveUp(app.bundleID))
         }
     }
 
