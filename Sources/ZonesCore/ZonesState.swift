@@ -63,9 +63,22 @@ public struct ZonesState: Codable, Equatable, Sendable {
         recents[display] = list
     }
 
+    /// Makes `id` the display's active layout. If it's already one of the display's
+    /// panel tiles, the tiles keep their order: the visible non-favourite tiles are
+    /// written into the recent list as they stand, so neither the clicked tile nor the
+    /// one that was only shown because it was active moves. Otherwise it goes to the
+    /// front of the recent list.
     public mutating func apply(_ id: UUID, forDisplay display: String) {
+        let shown = panelTiles(forDisplay: display).map(\.id)
+        if shown.contains(id) {
+            let favs = Set(favourites)
+            let frozen = shown.filter { !favs.contains($0) }
+            let rest = (recents[display] ?? []).filter { !frozen.contains($0) }
+            recents[display] = frozen + rest
+        } else {
+            touchRecent(id, forDisplay: display)
+        }
         setActive(id, forDisplay: display)
-        touchRecent(id, forDisplay: display)
     }
 
     /// Favourites, then this display's recents, then library order; the active layout is always shown.

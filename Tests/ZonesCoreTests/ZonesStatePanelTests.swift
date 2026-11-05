@@ -39,12 +39,56 @@ private func customPresets(_ n: Int) -> [Preset] {
         #expect(state.recents["D2"] == nil)
     }
 
-    @Test func applySetsActiveAndTouches() {
+    @Test func applySetsActive() {
         let s = StarterPresets.all
         var state = ZonesState(presets: s)
         state.apply(s[2].id, forDisplay: "D1")
         #expect(state.activePreset(forDisplay: "D1").id == s[2].id)
-        #expect(state.recents["D1"] == [s[2].id])
+    }
+
+    @Test func applyKeepsClickedTileInPlace() {
+        let p = customPresets(8)
+        var state = ZonesState(presets: p)
+        for i in [6, 4, 3, 2, 1] { state.touchRecent(p[i].id, forDisplay: "D1") }
+        state.setActive(p[1].id, forDisplay: "D1")
+        let before = state.panelTiles(forDisplay: "D1").map(\.id)
+        #expect(before == [p[1], p[2], p[3], p[4], p[6], p[0]].map(\.id))
+        state.apply(p[4].id, forDisplay: "D1")
+        #expect(state.panelTiles(forDisplay: "D1").map(\.id) == before)
+        #expect(state.activePreset(forDisplay: "D1").id == p[4].id)
+    }
+
+    @Test func applyKeepsPreviouslyActiveTileVisible() {
+        // p7 is only on the grid because it's active; switching away must not drop it.
+        let p = customPresets(8)
+        var state = ZonesState(presets: p)
+        for i in [5, 4, 3, 2, 1] { state.touchRecent(p[i].id, forDisplay: "D1") }
+        state.setActive(p[7].id, forDisplay: "D1")
+        let before = state.panelTiles(forDisplay: "D1").map(\.id)
+        #expect(before == [p[1], p[2], p[3], p[4], p[5], p[7]].map(\.id))
+        state.apply(p[2].id, forDisplay: "D1")
+        #expect(state.panelTiles(forDisplay: "D1").map(\.id) == before)
+    }
+
+    @Test func applyKeepsFavouritesAndOtherDisplaysUntouched() {
+        let p = customPresets(8)
+        var state = ZonesState(presets: p)
+        state.setFavourite(p[5].id, true)
+        state.touchRecent(p[6].id, forDisplay: "D2")
+        let d2Before = state.recents["D2"]
+        let before = state.panelTiles(forDisplay: "D1").map(\.id)
+        state.apply(p[1].id, forDisplay: "D1")
+        #expect(state.panelTiles(forDisplay: "D1").map(\.id) == before)
+        #expect(state.favourites == [p[5].id])
+        #expect(state.recents["D2"] == d2Before)
+    }
+
+    @Test func applyOffGridPresetMovesToFront() {
+        let p = customPresets(8)
+        var state = ZonesState(presets: p)
+        state.apply(p[7].id, forDisplay: "D1")   // p7 isn't among the six library-filled tiles
+        #expect(state.recents["D1"]?.first == p[7].id)
+        #expect(state.panelTiles(forDisplay: "D1").first?.id == p[7].id)
     }
 
     @Test func favouriteCapIsSix() {
@@ -73,7 +117,8 @@ private func customPresets(_ n: Int) -> [Preset] {
         var state = ZonesState(presets: p)
         state.setFavourite(p[5].id, true)
         state.touchRecent(p[6].id, forDisplay: "D1")
-        state.apply(p[2].id, forDisplay: "D1")
+        state.touchRecent(p[2].id, forDisplay: "D1")
+        state.setActive(p[2].id, forDisplay: "D1")
         #expect(state.panelTiles(forDisplay: "D1").map(\.id) == [p[5], p[2], p[6], p[0], p[1], p[3]].map(\.id))
     }
 
