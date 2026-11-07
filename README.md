@@ -52,8 +52,11 @@ panel shows an orange **Accessibility permission needed** banner with an
 - **Window switcher:** press **Option+Tab** to list your windows, most recent
   first. Keep holding Option and tap **Tab** to move down (**Shift+Tab** to move
   up), then release Option to switch to the highlighted window. **Esc**
-  cancels, and clicking a row switches to it. It lists the windows on the
-  current desktop, plus minimized windows and hidden apps' windows. Turn it
+  cancels, and clicking a row switches to it. It lists windows on every
+  desktop and in full screen, plus minimized windows and hidden apps' windows;
+  picking one on another desktop switches to it. (Seeing other desktops relies
+  on an undocumented macOS function; if a future macOS removes it, the
+  switcher falls back to the current desktop's windows.) Turn it
   off or on with **Window Switcher** in the menu bar panel.
 - **Volume mixer** (macOS 14.2 or later): the panel's **Volume Mixer** card
   lists the apps playing sound. Drag an app's slider from 0% to 150% (there's
